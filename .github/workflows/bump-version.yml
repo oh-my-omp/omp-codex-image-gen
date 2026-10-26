@@ -1,4 +1,4 @@
-# Every push to master gets its own patch version. package.json is the source of the
+# Every push to main gets its own patch version. package.json is the source of the
 # version; every file in TOML_VERSION_FILES carries the same number in a top-level
 # `version = "X.Y.Z"` line and is bumped with it. omp reports this version, so each push
 # is distinguishable from the last.
@@ -9,7 +9,7 @@ name: bump-version
 
 on:
   push:
-    branches: [master]
+    branches: [main]
 
 permissions:
   contents: write
@@ -27,7 +27,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: master
+          ref: main
 
       - name: Bump patch version
         run: |
@@ -57,4 +57,4 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -am "chore: release $NEXT"
-          git push origin HEAD:master
+          git push origin HEAD:main

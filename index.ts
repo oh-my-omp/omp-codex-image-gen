@@ -26,6 +26,7 @@ import {
 } from "./src/input/reference-images.ts";
 import { ImageStore } from "./src/output/image-store.ts";
 import type { GenerateImageRequest } from "./src/types.ts";
+import { configureAgentDir, tr } from "./src/i18n.ts";
 
 // Oh My Pi rewrites the `typebox` specifier to its omptype-backed TypeBox shim at
 // extension-load time, so the runtime builder emits the omptype schemas the tool
@@ -103,9 +104,10 @@ export function createCodexImageExtension(
 	referencePlanner: ReferenceImagePlanning = new ReferenceImagePlanner(),
 ): ExtensionFactory {
 	return (pi: ExtensionAPI) => {
+		configureAgentDir(getAgentDir());
 		pi.registerTool({
 			name: "codex_generate_image",
-			label: "Codex Generate Image",
+			label: tr("Codex Generate Image", "Codex 生成图片"),
 			description:
 				"Generate or edit one PNG with gpt-image-2 through the ChatGPT-backed Codex Images flow used by Codex CLI. Provide referencedImagePaths to edit or derive from one to five local PNG, JPEG, or WebP images.",
 			parameters: PARAMETERS,
@@ -143,8 +145,8 @@ export function createCodexImageExtension(
 						{
 							type: "text",
 							text: referenceImages
-								? "Editing one PNG through Codex Images..."
-								: "Generating one PNG through Codex Images...",
+								? tr("Editing one PNG through Codex Images...", "正在通过 Codex Images 编辑一张 PNG……")
+								: tr("Generating one PNG through Codex Images...", "正在通过 Codex Images 生成一张 PNG……"),
 						},
 					],
 					details: {},

@@ -52,6 +52,17 @@ Load a checkout for one session without changing `omp` settings:
 omp -e /absolute/path/to/omp-codex-image-gen
 ```
 
+## UI language
+
+The tool label and in-progress status follow `OMOMP_LANG` when it is `en` or `zh` (case-insensitive). Otherwise, the extension reads the `omomp-lang` section from exactly one agent-directory `omomp.yml`, `omomp.yaml`, `omomp.json`, or `omomp.toml` file:
+
+```yaml
+omomp-lang:
+  language: zh
+```
+
+If that setting is absent or invalid, the first non-empty `LC_ALL`, `LC_MESSAGES`, or `LANG` value selects Chinese when it starts with `zh`; otherwise the UI is English. With no setting or locale, English is used.
+
 ## Usage
 
 ### Start with natural language

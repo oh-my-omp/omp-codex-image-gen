@@ -43,6 +43,17 @@ omp install https://github.com/oh-my-omp/omp-codex-image-gen
 omp -e /absolute/path/to/omp-codex-image-gen
 ```
 
+## 界面语言
+
+工具标签和运行中状态优先使用 `OMOMP_LANG`（不区分大小写，仅接受 `en` 或 `zh`）。否则，扩展会从 agent 目录中唯一的 `omomp.yml`、`omomp.yaml`、`omomp.json` 或 `omomp.toml` 文件读取 `omomp-lang` 配置：
+
+```yaml
+omomp-lang:
+  language: zh
+```
+
+如果配置缺失或无效，则按 `LC_ALL`、`LC_MESSAGES`、`LANG` 的顺序取第一个非空值；值以 `zh` 开头时使用中文，否则使用英文。没有配置或 locale 时默认使用英文。
+
 ## 用法
 
 ### 直接用自然语言
