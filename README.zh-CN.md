@@ -45,14 +45,16 @@ omp -e /absolute/path/to/omp-codex-image-gen
 
 ## 界面语言
 
-工具标签和运行中状态优先使用 `OMOMP_LANG`（不区分大小写，仅接受 `en` 或 `zh`）。否则，扩展会从 agent 目录中唯一的 `omomp.yml`、`omomp.yaml`、`omomp.json` 或 `omomp.toml` 文件读取 `omomp-lang` 配置：
+工具标签和运行中状态优先使用 `OMOMP_LANG`（去掉首尾空白后不区分大小写，仅接受 `en` 或 `zh`）。否则，扩展会从 agent 目录中唯一的 `omomp.yml`、`omomp.yaml`、`omomp.json` 或 `omomp.toml` 文件读取 `omomp-lang` 配置：
 
 ```yaml
 omomp-lang:
   language: zh
 ```
 
-如果配置缺失或无效，则按 `LC_ALL`、`LC_MESSAGES`、`LANG` 的顺序取第一个非空值；值以 `zh` 开头时使用中文，否则使用英文。没有配置或 locale 时默认使用英文。
+配置段只接受 `language` 字段，值必须是精确的 `en` 或 `zh`，不去空白、不转换大小写。文件或配置段无效，以及 agent 目录中同时存在多个候选文件时，都会跳过此设置。不读取项目 `.omp/` 配置。agent 配置在进程内缓存，修改后需重启 `omp`。
+
+如果 agent 配置缺失或无效，则按 `LC_ALL`、`LC_MESSAGES`、`LANG` 的顺序取去掉首尾空白后的第一个非空值；值以 `zh` 开头时使用中文（不区分大小写），否则使用英文。没有配置或 locale 时默认使用英文。每次生成界面文字时都会重新读取环境变量。
 
 ## 用法
 

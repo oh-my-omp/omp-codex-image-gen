@@ -54,14 +54,16 @@ omp -e /absolute/path/to/omp-codex-image-gen
 
 ## UI language
 
-The tool label and in-progress status follow `OMOMP_LANG` when it is `en` or `zh` (case-insensitive). Otherwise, the extension reads the `omomp-lang` section from exactly one agent-directory `omomp.yml`, `omomp.yaml`, `omomp.json`, or `omomp.toml` file:
+The tool label and in-progress status follow `OMOMP_LANG` when its value, after trimming whitespace and ignoring case, is `en` or `zh`. Otherwise, the extension reads the `omomp-lang` section from exactly one agent-directory `omomp.yml`, `omomp.yaml`, `omomp.json`, or `omomp.toml` file:
 
 ```yaml
 omomp-lang:
   language: zh
 ```
 
-If that setting is absent or invalid, the first non-empty `LC_ALL`, `LC_MESSAGES`, or `LANG` value selects Chinese when it starts with `zh`; otherwise the UI is English. With no setting or locale, English is used.
+The section accepts only the `language` field with the exact value `en` or `zh`; configuration values are not trimmed or case-normalized. Invalid files or sections, and multiple candidate files in the agent directory, are ignored. Project `.omp/` configuration is not read. The agent setting is cached for the process; changes apply after restarting `omp`.
+
+If the agent setting is absent or invalid, the first non-empty `LC_ALL`, `LC_MESSAGES`, or `LANG` value after trimming whitespace selects Chinese when it starts with `zh` (case-insensitive); otherwise the UI is English. With no setting or locale, English is used. Environment variables are read again whenever UI text is generated.
 
 ## Usage
 

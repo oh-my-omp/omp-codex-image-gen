@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { createCodexImageExtension } from "../index.ts";
 import type { GenerateContext, GeneratedImage, ImageGenerator } from "../src/image-generator.ts";
+import { tr } from "../src/i18n.ts";
 
 function fakePi() {
 	const handlers = new Map<string, (...args: any[]) => unknown>();
@@ -60,7 +61,7 @@ test("package extension registers codex_generate_image", async () => {
 	createCodexImageExtension(generator)(pi.api as never);
 
 	assert.equal(pi.tool.name, "codex_generate_image");
-	assert.equal(pi.tool.label, "Codex Generate Image");
+	assert.equal(pi.tool.label, tr("Codex Generate Image", "Codex 生成图片"));
 	assert.equal(pi.tool.parameters.properties.referencedImagePaths.minItems, 0);
 	assert.equal(pi.tool.parameters.properties.referencedImagePaths.maxItems, 5);
 

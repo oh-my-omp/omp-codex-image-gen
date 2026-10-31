@@ -51,7 +51,7 @@ function readConfiguredLanguage(): Language | null {
 		const value = parseConfig(readFileSync(path, "utf8"), path);
 		if (!isConfigRoot(value)) return null;
 		const section = value["omomp-lang"];
-		if (!isConfigRoot(section)) return null;
+		if (!isConfigRoot(section) || Object.keys(section).some((key) => key !== "language")) return null;
 		configuredLanguage = parseConfiguredLanguage(section.language);
 	} catch {
 		configuredLanguage = null;
