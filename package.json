@@ -1,6 +1,6 @@
 {
   "name": "omp-codex-image-gen",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "description": "Generate or edit PNG images in Oh My Pi using a ChatGPT Plus/Pro Codex subscription.",
   "type": "module",
   "license": "MIT",
