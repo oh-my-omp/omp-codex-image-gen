@@ -248,6 +248,54 @@ test("ReferenceImagePlanner rejects a large oversized file without decoding", as
 	assert.equal(normalizeCalled, false);
 });
 
+test("ReferenceImagePlanner reports a swap after the header probe as changed", async (t) => {
+	const root = await temporaryDirectory();
+	t.after(() => rm(root, { recursive: true, force: true }));
+	const oversized = join(root, "oversized.png");
+	await writeFile(
+		oversized,
+		Buffer.concat([pngHeader(10_000, 5_000), Buffer.alloc(1024 * 1024, 0)]),
+	);
+	let normalizeCalled = false;
+	const planner = new ReferenceImagePlanner(async () => {
+		normalizeCalled = true;
+		return null;
+	});
+	const plan = await planner.plan([oversized], { cwd: root, projectTrusted: true });
+	// Swap the file after planning: the re-stat before the probe verdict must win.
+	await writeFile(oversized, Buffer.alloc(8, 0));
+	await assert.rejects(
+		plan.load(),
+		(error: unknown) =>
+			error instanceof ExtensionError && error.code === "INPUT_IMAGE_CHANGED",
+	);
+	assert.equal(normalizeCalled, false);
+});
+
+test("ReferenceImagePlanner honors abort before a header-probe rejection", async (t) => {
+	const root = await temporaryDirectory();
+	t.after(() => rm(root, { recursive: true, force: true }));
+	const oversized = join(root, "oversized.png");
+	await writeFile(
+		oversized,
+		Buffer.concat([pngHeader(10_000, 5_000), Buffer.alloc(1024 * 1024, 0)]),
+	);
+	let normalizeCalled = false;
+	const planner = new ReferenceImagePlanner(async () => {
+		normalizeCalled = true;
+		return null;
+	});
+	const plan = await planner.plan([oversized], { cwd: root, projectTrusted: true });
+	const controller = new AbortController();
+	controller.abort();
+	await assert.rejects(
+		plan.load(controller.signal),
+		(error: unknown) =>
+			error instanceof ExtensionError && error.code === "CANCELLED",
+	);
+	assert.equal(normalizeCalled, false);
+});
+
 test("ReferenceImagePlanner still rejects a corrupt JPEG the small-header probes cannot see", async (t) => {
 	const root = await temporaryDirectory();
 	t.after(() => rm(root, { recursive: true, force: true }));

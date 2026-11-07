@@ -221,7 +221,15 @@ async function loadPlannedFiles(
 			if (file.size > HEADER_PROBE_BYTES) {
 				const header = await readHeaderProbe(handle, file);
 				const rejection = probeForFinalRejection(header);
-				if (rejection !== undefined) throw rejection;
+				if (rejection !== undefined) {
+					// Same pre-checks the full path runs after the read: re-stat
+					// first (a swap between plan and probe must report CHANGED),
+					// then honor a pending abort before reporting the verdict.
+					const after = await handle.stat();
+					assertUnchanged(file, after);
+					if (signal?.aborted) throw cancelledError();
+					throw rejection;
+				}
 				bytes = await handle.readFile();
 			} else {
 				bytes = await handle.readFile();
