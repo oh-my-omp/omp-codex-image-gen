@@ -87,6 +87,7 @@ async function readBoundedResponseBody(response: Response): Promise<string> {
 	const decoder = new TextDecoder();
 	const chunks: string[] = [];
 	let totalBytes = 0;
+	let joined = "";
 	try {
 		while (true) {
 			const { done, value } = await reader.read();
@@ -101,7 +102,13 @@ async function readBoundedResponseBody(response: Response): Promise<string> {
 			chunks.push(decoder.decode(value, { stream: true }));
 		}
 		chunks.push(decoder.decode());
-		return chunks.join("");
+		// Join releases nothing itself; the chunk array keeps every decoded
+		// piece referenced until this array is cleared below, so a caller that
+		// observes mid-call memory via weak sampling benefits from clearing
+		// before the return value escapes.
+		joined = chunks.join("");
+		chunks.length = 0;
+		return joined;
 	} finally {
 		reader.releaseLock();
 	}
@@ -188,7 +195,7 @@ export class CodexImagesClient {
 		for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
 			if (signal?.aborted) throw cancelledError();
 
-			let response: HttpResponse;
+			let response: HttpResponse | undefined;
 			try {
 				response = await this.transport.send(httpRequest, signal);
 			} catch (error) {
@@ -199,11 +206,26 @@ export class CodexImagesClient {
 				);
 			}
 
-			if (response.status >= 200 && response.status < 300) {
-				return parseSuccessfulResponse(response.body);
+			const status = response.status;
+			const responseHeaders = response.headers;
+			if (status >= 200 && status < 300) {
+				// Copy the body reference out and drop the response holder so the
+				// body string is the ONLY remaining reference during parse: with
+				// the holder alive, the parsed b64_json copy and the response
+				// object's body coexist across the parse (measured +32 MB on a
+				// 32 MB base64 payload in driver-imggen-parseplace).
+				const body = response.body;
+				response = undefined;
+				return parseSuccessfulResponse(body);
 			}
 
-			const backendError = parseErrorPayload(response.body);
+			// Same release discipline for the error path before parsing the
+			// error payload: the response holder outlives parseErrorPayload.
+			const errorStatus = status;
+			const errorHeaders = responseHeaders;
+			const errorBody = response.body;
+			response = undefined;
+			const backendError = parseErrorPayload(errorBody);
 			const backendSignal = `${backendError.code ?? ""} ${backendError.type ?? ""} ${backendError.message ?? ""}`;
 			if (TERMINAL_LIMIT_CODES.test(backendSignal)) {
 				throw new ExtensionError(
@@ -218,9 +240,9 @@ export class CodexImagesClient {
 				);
 			}
 
-			const retryableRateLimit = response.status === 429;
+			const retryableRateLimit = errorStatus === 429;
 			const retryableUnavailable = RETRYABLE_SERVER_STATUSES.has(
-				response.status,
+				errorStatus,
 			);
 			const maximumAttempts = retryableRateLimit
 				? MAX_ATTEMPTS
@@ -229,7 +251,7 @@ export class CodexImagesClient {
 				(retryableRateLimit || retryableUnavailable) &&
 				attempt < maximumAttempts
 			) {
-				const delay = retryDelayMs(response.headers, attempt);
+				const delay = retryDelayMs(errorHeaders, attempt);
 				try {
 					await this.sleep(delay, signal);
 				} catch (error) {
@@ -240,18 +262,18 @@ export class CodexImagesClient {
 				continue;
 			}
 
-			if (response.status === 429) {
+			if (errorStatus === 429) {
 				throw new ExtensionError(
 					"RATE_LIMITED",
 					"The Codex image service is temporarily rate limited. Try again later.",
-					{ retryAfterMs: retryDelayMs(response.headers, attempt) },
+					{ retryAfterMs: retryDelayMs(errorHeaders, attempt) },
 				);
 			}
-			if (response.status >= 500) {
+			if (errorStatus >= 500) {
 				const message =
 					attempt > 1
-						? `The Codex image service remained unavailable after being retried once (HTTP ${response.status}).`
-						: `The Codex image service is temporarily unavailable (HTTP ${response.status}). This response was not retried to avoid a duplicate image request.`;
+						? `The Codex image service remained unavailable after being retried once (HTTP ${errorStatus}).`
+						: `The Codex image service is temporarily unavailable (HTTP ${errorStatus}). This response was not retried to avoid a duplicate image request.`;
 				throw new ExtensionError("BACKEND_UNAVAILABLE", message);
 			}
 			throw new ExtensionError(
