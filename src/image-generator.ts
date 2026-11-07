@@ -81,18 +81,24 @@ export class DefaultImageGenerator implements ImageGenerator {
       throw new ExtensionError("INVALID_REQUEST", "Reference images were prepared for a generation request.");
     }
 
-    const references = context.referenceImages
-      ? await context.referenceImages.load(context.signal)
-      : [];
+    // `references` held every dataUrl (~60 MB max). The loader below returns
+    // only the dataUrl strings, so the per-file upstream array ends with the
+    // helper frame; only the required `images` payload crosses into the client
+    // (whose in-client retention is oh-my-omp/omp-codex-image-gen#4's).
+    const imageUrls = await loadEditImageDataUrls(
+      context.referenceImages,
+      requestedReferences,
+      context.signal,
+    );
     const auth = await this.dependencies.resolveAuth(context.modelRegistry);
     const imageRequest = {
       prompt,
       quality: request.quality ?? "auto",
       size: request.size ?? "auto",
     };
-    const generated = references.length > 0
+    const generated = imageUrls.length > 0
       ? await this.dependencies.client.edit(
-          { ...imageRequest, images: references.map((image) => image.dataUrl) },
+          { ...imageRequest, images: imageUrls },
           auth,
           context.signal,
         )
@@ -113,6 +119,22 @@ export class DefaultImageGenerator implements ImageGenerator {
     if (generated.size !== undefined) result.size = generated.size;
     return result;
   }
+}
+
+/**
+ * Loads reference images and returns only their dataUrl payloads. The
+ * `ResolvedReferenceImage[]` array (one entry per reference file) ends with
+ * this helper frame, so no per-file upstream shape survives into the
+ * auth/network awaits in `generate`.
+ */
+async function loadEditImageDataUrls(
+  referenceImages: PlannedReferenceImages | undefined,
+  requestedReferences: number,
+  signal?: AbortSignal | undefined,
+): Promise<string[]> {
+  if (requestedReferences === 0) return [];
+  const references = await referenceImages!.load(signal);
+  return references.map((image) => image.dataUrl);
 }
 
 function validatePrompt(value: string): string {

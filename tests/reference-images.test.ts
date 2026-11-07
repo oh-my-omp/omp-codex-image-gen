@@ -225,6 +225,57 @@ test("ReferenceImagePlanner rejects excessive WebP pixels before decoding", asyn
 	assert.equal(normalizeCalled, false);
 });
 
+test("ReferenceImagePlanner rejects a large oversized file without decoding", async (t) => {
+	const root = await temporaryDirectory();
+	t.after(() => rm(root, { recursive: true, force: true }));
+	const oversized = join(root, "oversized.png");
+	await writeFile(
+		oversized,
+		Buffer.concat([pngHeader(10_000, 5_000), Buffer.alloc(1024 * 1024, 0)]),
+	);
+	let normalizeCalled = false;
+	const planner = new ReferenceImagePlanner(async () => {
+		normalizeCalled = true;
+		return null;
+	});
+	const plan = await planner.plan([oversized], { cwd: root, projectTrusted: true });
+
+	await assert.rejects(
+		plan.load(),
+		(error: unknown) =>
+			error instanceof ExtensionError && error.code === "INPUT_IMAGE_TOO_LARGE",
+	);
+	assert.equal(normalizeCalled, false);
+});
+
+test("ReferenceImagePlanner still rejects a corrupt JPEG the small-header probes cannot see", async (t) => {
+	const root = await temporaryDirectory();
+	t.after(() => rm(root, { recursive: true, force: true }));
+	// SOF beyond the 64 KiB header probe: the probe must stay inconclusive and
+	// the full-path validation below must deliver the verdict.
+	const fillerLength = 80 * 1024;
+	const jpeg = Buffer.concat([
+		Buffer.from([0xff, 0xd8, 0xff, 0xe0, (fillerLength + 2) >> 8, (fillerLength + 2) & 0xff]),
+		Buffer.alloc(fillerLength, 0x41),
+		Buffer.from([0xff, 0xc9, 0x00, 0x07, 0x08, 0x00, 0x01, 0x00, 0x01]),
+	]);
+	const image = join(root, "deep.jpg");
+	await writeFile(image, jpeg);
+	let normalizeCalled = false;
+	const planner = new ReferenceImagePlanner(async () => {
+		normalizeCalled = true;
+		return null;
+	});
+	const plan = await planner.plan([image], { cwd: root, projectTrusted: true });
+
+	await assert.rejects(
+		plan.load(),
+		(error: unknown) =>
+			error instanceof ExtensionError && error.code === "INPUT_IMAGE_INVALID",
+	);
+	assert.equal(normalizeCalled, false);
+});
+
 test("ReferenceImagePlanner rejects zero WebP dimensions before decoding", async (t) => {
 	const root = await temporaryDirectory();
 	t.after(() => rm(root, { recursive: true, force: true }));
