@@ -189,13 +189,14 @@ test("decodePngBase64 validates canonical base64, decoded size, and PNG signatur
     (error: unknown) => error instanceof ExtensionError && error.code === "NO_IMAGE",
   );
   // Non-canonical tail sextets (unused trailing bits non-zero) must still be
-  // rejected. Without padding all bits are consumed, so the constraint only
-  // binds padded forms: one padding leaves 2 unused bits in the tail sextet,
-  // two leave 4. 'B' = 0b000001, 'C' = 0b000010 — both have non-zero low bits.
-  assertThrowsNonCanonical("aW1hZ2UB="); // tail 'B' leaves unused bits "01"
-  assertThrowsNonCanonical("aW1hZ2UC="); // tail 'C' leaves "10"
-  assertThrowsNonCanonical("aW1hZ2UB=="); // tail 'B' leaves "0001"
-  assertThrowsNonCanonical("aW1hZ2UC=="); // tail 'C' leaves "0010"
+  // rejected. These needles are valid-length PNG-prefixed forms whose only
+  // defect is the tail sextet: signature bytes pass, the charset/length/padding
+  // prefilter passes, and only the pre-padding data char carries non-zero
+  // unused bits ('A' -> 'B' puts 0b0001 into the bits that padding leaves
+  // unused). Their canonical counterparts decode fine, so each needle fails
+  // exactly at the canonical-form check.
+  assertThrowsNonCanonical("iVBORw0KGgpQTkdEQVRBMDB="); // one padding, tail 'B' leaves 2 unused bits "01"
+  assertThrowsNonCanonical("iVBORw0KGgpQTkdEQVRBMB=="); // two paddings, tail 'B' leaves 4 unused bits "0001"
 });
 
 function assertThrowsNonCanonical(b64: string): void {
