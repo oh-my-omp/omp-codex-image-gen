@@ -1,5 +1,5 @@
 import { constants, type Stats } from "node:fs";
-import { open, realpath, stat } from "node:fs/promises";
+import { open, realpath, stat, type FileHandle } from "node:fs/promises";
 import { isAbsolute, relative, resolve } from "node:path";
 
 import { resizeImage } from "@oh-my-pi/pi-coding-agent/utils/image-resize";
@@ -69,8 +69,15 @@ interface PlannedFile {
 
 const defaultNormalizer: ImageNormalizer = async (bytes, mimeType) => {
 	try {
+		// `bytes` is the complete file on every real path. Wrap its ArrayBuffer
+		// instead of copying the whole file (~20 MiB) before base64 encoding.
+		const base64 = Buffer.from(
+			bytes.buffer,
+			bytes.byteOffset,
+			bytes.byteLength,
+		).toString("base64");
 		const resized = await resizeImage(
-			{ type: "image", data: Buffer.from(bytes).toString("base64"), mimeType },
+			{ type: "image", data: base64, mimeType },
 			{
 				maxWidth: 16_384,
 				maxHeight: 16_384,
@@ -204,7 +211,29 @@ async function loadPlannedFiles(
 		try {
 			const before = await handle.stat();
 			assertUnchanged(file, before);
-			const bytes = await handle.readFile();
+			// Header-first: probe the first HEADER_PROBE_BYTES before allocating
+			// the full file. A final INVALID verdict (bad magic) or a TOO_LARGE
+			// verdict whose dimension tuple is provably the one the full scan
+			// would find first rejects here without the full-file allocation.
+			// Anything inconclusive falls through to the full read + full
+			// validation below, so behavior is identical to before.
+			let bytes: Buffer;
+			if (file.size > HEADER_PROBE_BYTES) {
+				const header = await readHeaderProbe(handle, file);
+				const rejection = probeForFinalRejection(header);
+				if (rejection !== undefined) {
+					// Same pre-checks the full path runs after the read: re-stat
+					// first (a swap between plan and probe must report CHANGED),
+					// then honor a pending abort before reporting the verdict.
+					const after = await handle.stat();
+					assertUnchanged(file, after);
+					if (signal?.aborted) throw cancelledError();
+					throw rejection;
+				}
+				bytes = await handle.readFile();
+			} else {
+				bytes = await handle.readFile();
+			}
 			const after = await handle.stat();
 			assertUnchanged(file, after);
 			if (bytes.length !== file.size) throw changedImageError();
@@ -249,6 +278,64 @@ async function loadPlannedFiles(
 		}
 	}
 	return images;
+}
+
+/**
+ * Probe size: covers PNG IHDR (24 B), JPEG SOF markers in ordinary camera files,
+ * and every WebP dimension branch (VP8/VP8L/VP8X extents live in the first 30 B).
+ * Files at or below this size take the old single-read path unchanged.
+ */
+const HEADER_PROBE_BYTES = 64 * 1024;
+
+async function readHeaderProbe(
+	handle: FileHandle,
+	file: PlannedFile,
+): Promise<Uint8Array> {
+	const length = Math.min(file.size, HEADER_PROBE_BYTES);
+	const buffer = Buffer.allocUnsafe(length);
+	let filled = 0;
+	while (filled < length) {
+		const { bytesRead } = await handle.read(buffer, filled, length - filled, filled);
+		if (bytesRead === 0) break;
+		filled += bytesRead;
+	}
+	if (filled !== length) throw changedImageError();
+	return filled === length ? buffer : buffer.subarray(0, filled);
+}
+
+/**
+ * Returns the rejection the full path would produce when the header alone proves
+ * it, else `undefined` to fall through to the full read + full validation.
+ * Only two verdicts are final here:
+ * - bad magic (INVALID): `detectMimeType` reads only the first 12 bytes;
+ * - a dimension tuple found in the header that already exceeds the limits
+ *   (TOO_LARGE): every parser returns the FIRST tuple it finds scanning forward
+ *   from offset 0, so a tuple found in the prefix is the same one the full scan
+ *   finds first, and the same limit check applies. Dimension INVALID (zero or
+ *   unparseable) always falls through — parsers consult `bytes.length` as an
+ *   "out of data" boundary, so only the full buffer may deliver that verdict.
+ */
+function probeForFinalRejection(header: Uint8Array): ExtensionError | undefined {
+	const mimeType = detectMimeType(header);
+	if (!mimeType) {
+		return new ExtensionError(
+			"INPUT_IMAGE_INVALID",
+			"Reference images must be valid PNG, JPEG, or WebP files.",
+		);
+	}
+	const dimensions = readImageDimensions(header, mimeType);
+	if (
+		dimensions !== undefined &&
+		(dimensions.width > MAX_SOURCE_DIMENSION ||
+			dimensions.height > MAX_SOURCE_DIMENSION ||
+			dimensions.width * dimensions.height > MAX_SOURCE_PIXELS)
+	) {
+		return new ExtensionError(
+			"INPUT_IMAGE_TOO_LARGE",
+			"A reference image exceeds the safe decoded-dimension limit.",
+		);
+	}
+	return undefined;
 }
 
 function assertUnchanged(planned: PlannedFile, current: Stats): void {
@@ -488,8 +575,14 @@ function detectMimeType(bytes: Uint8Array): string | undefined {
 	}
 	if (
 		bytes.length >= 12 &&
-		Buffer.from(bytes.subarray(0, 4)).toString("ascii") === "RIFF" &&
-		Buffer.from(bytes.subarray(8, 12)).toString("ascii") === "WEBP"
+		bytes[0] === 0x52 && // "RIFF"
+		bytes[1] === 0x49 &&
+		bytes[2] === 0x46 &&
+		bytes[3] === 0x46 &&
+		bytes[8] === 0x57 && // "WEBP"
+		bytes[9] === 0x45 &&
+		bytes[10] === 0x42 &&
+		bytes[11] === 0x50
 	) {
 		return "image/webp";
 	}
