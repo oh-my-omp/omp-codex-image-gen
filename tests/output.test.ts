@@ -188,7 +188,22 @@ test("decodePngBase64 validates canonical base64, decoded size, and PNG signatur
     () => decodePngBase64(Buffer.alloc(16).toString("base64"), 8),
     (error: unknown) => error instanceof ExtensionError && error.code === "NO_IMAGE",
   );
+  // Non-canonical tail sextets (unused trailing bits non-zero) must still be
+  // rejected. Without padding all bits are consumed, so the constraint only
+  // binds padded forms: one padding leaves 2 unused bits in the tail sextet,
+  // two leave 4. 'B' = 0b000001, 'C' = 0b000010 — both have non-zero low bits.
+  assertThrowsNonCanonical("aW1hZ2UB="); // tail 'B' leaves unused bits "01"
+  assertThrowsNonCanonical("aW1hZ2UC="); // tail 'C' leaves "10"
+  assertThrowsNonCanonical("aW1hZ2UB=="); // tail 'B' leaves "0001"
+  assertThrowsNonCanonical("aW1hZ2UC=="); // tail 'C' leaves "0010"
 });
+
+function assertThrowsNonCanonical(b64: string): void {
+  assert.throws(
+    () => decodePngBase64(b64),
+    (error: unknown) => error instanceof ExtensionError && error.code === "NO_IMAGE",
+  );
+}
 
 test("ImageStore writes atomically and allocates deterministic collision suffixes", async (t) => {
   const root = await temporaryDirectory();

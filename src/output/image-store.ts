@@ -22,10 +22,31 @@ export function decodePngBase64(value: string, maximumBytes = DEFAULT_MAX_IMAGE_
   }
 
   const bytes = Buffer.from(encoded, "base64");
-  if (bytes.length > maximumBytes || bytes.toString("base64") !== encoded || !bytes.subarray(0, 8).equals(PNG_SIGNATURE)) {
+  // The regex above fixes the character table, the length and the padding
+  // position, so the only remaining non-canonical form is non-zero unused bits
+  // in the final quantum (they vanish when re-encoding). Checking that directly
+  // replaces the whole-payload re-encode comparison.
+  if (bytes.length > maximumBytes || !hasCanonicalTail(encoded) || !bytes.subarray(0, 8).equals(PNG_SIGNATURE)) {
     throw invalidImage();
   }
   return bytes;
+}
+
+// `encoded` passed the character-table, length and padding checks; the only
+// remaining non-canonical form is unused non-zero sextet bits in the tail
+// quantum: one padding char leaves 2 such bits, two leave 4, none leaves none.
+function hasCanonicalTail(encoded: string): boolean {
+  const padding = (encoded.charCodeAt(encoded.length - 1) === 61 ? 1 : 0) + (encoded.charCodeAt(encoded.length - 2) === 61 ? 1 : 0);
+  if (padding === 0) return true;
+  const code = encoded.charCodeAt(encoded.length - 1 - padding);
+  let sextet: number;
+  if (code >= 65 && code <= 90) sextet = code - 65; // A-Z
+  else if (code >= 97 && code <= 122) sextet = code - 71; // a-z
+  else if (code >= 48 && code <= 57) sextet = code + 4; // 0-9
+  else if (code === 43) sextet = 62; // +
+  else if (code === 47) sextet = 63; // /
+  else return false; // unreachable: the regex leaves no other character here
+  return (sextet & ((1 << 2 * padding) - 1)) === 0;
 }
 
 type MutationQueue = <T>(path: string, operation: () => Promise<T>) => Promise<T>;
