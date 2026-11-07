@@ -188,7 +188,23 @@ test("decodePngBase64 validates canonical base64, decoded size, and PNG signatur
     () => decodePngBase64(Buffer.alloc(16).toString("base64"), 8),
     (error: unknown) => error instanceof ExtensionError && error.code === "NO_IMAGE",
   );
+  // Non-canonical tail sextets (unused trailing bits non-zero) must still be
+  // rejected. These needles are valid-length PNG-prefixed forms whose only
+  // defect is the tail sextet: signature bytes pass, the charset/length/padding
+  // prefilter passes, and only the pre-padding data char carries non-zero
+  // unused bits ('A' -> 'B' puts 0b0001 into the bits that padding leaves
+  // unused). Their canonical counterparts decode fine, so each needle fails
+  // exactly at the canonical-form check.
+  assertThrowsNonCanonical("iVBORw0KGgpQTkdEQVRBMDB="); // one padding, tail 'B' leaves 2 unused bits "01"
+  assertThrowsNonCanonical("iVBORw0KGgpQTkdEQVRBMB=="); // two paddings, tail 'B' leaves 4 unused bits "0001"
 });
+
+function assertThrowsNonCanonical(b64: string): void {
+  assert.throws(
+    () => decodePngBase64(b64),
+    (error: unknown) => error instanceof ExtensionError && error.code === "NO_IMAGE",
+  );
+}
 
 test("ImageStore writes atomically and allocates deterministic collision suffixes", async (t) => {
   const root = await temporaryDirectory();
